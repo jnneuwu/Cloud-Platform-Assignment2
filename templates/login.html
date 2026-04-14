@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="panel">
+    <p class="eyebrow">Cloud Services & Platforms</p>
+    <h1>Mini Dropbox Starter</h1>
+    <p class="lead">
+        First, wire in the exact course <code>firebase-login.js</code>. This starter expects that script
+        to sign the user in with Firebase, fetch the Firebase ID token, and POST it to
+        <code>/auth/login</code>.
+    </p>
+
+    <div class="callout">
+        <strong>Do not replace the login flow with your own system.</strong>
+        The brief says any other login system can fail the assignment.
+    </div>
+
+    <button class="primary-button" type="button" data-login>Login With Firebase</button>
+
+    <ol class="checklist">
+        <li>Copy the exact course <code>firebase-login.js</code> into <code>static/js/</code>.</li>
+        <li>Put your Firebase config and service account details in place.</li>
+        <li>Start the app and test that first login creates a user and root directory.</li>
+    </ol>
+</section>
+
+<script type="module" src="/static/js/firebase-login.js"></script>
+{% endblock %}
