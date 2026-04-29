@@ -1,26 +1,31 @@
-import firebase_admin
-from firebase_admin import auth, credentials
+"""Firebase token verification using google-auth, matching the course example.
 
-from .config import settings
-
-
-def _ensure_firebase_admin():
-    if firebase_admin._apps:
-        return
-
-    if not settings.firebase_credentials_path:
-        raise RuntimeError("FIREBASE_CREDENTIALS_PATH is not configured.")
-
-    certificate = credentials.Certificate(settings.firebase_credentials_path)
-    if settings.firebase_project_id:
-        firebase_admin.initialize_app(certificate, {"projectId": settings.firebase_project_id})
-    else:
-        firebase_admin.initialize_app(certificate)
+The course PaaS-by-example.pdf (Example 03) verifies Firebase ID tokens with
+``google.oauth2.id_token.verify_firebase_token``. We follow that exact pattern
+instead of the firebase-admin SDK so the project stays inside the libraries
+introduced in the course materials.
+"""
+import google.oauth2.id_token
+from google.auth.transport import requests as google_requests
 
 
-def verify_firebase_id_token(id_token: str) -> dict:
+_firebase_request_adapter = google_requests.Request()
+
+
+def verify_firebase_id_token(id_token: str) -> dict | None:
+    """Validate a Firebase ID token taken from the ``token`` cookie.
+
+    Returns the decoded claims dictionary when the token is valid, or ``None``
+    when the cookie is missing/invalid. Mirrors how Example 03 logs validation
+    errors to the console rather than raising to the route handler.
+    """
     if not id_token:
-        raise ValueError("Missing Firebase ID token.")
+        return None
 
-    _ensure_firebase_admin()
-    return auth.verify_id_token(id_token)
+    try:
+        return google.oauth2.id_token.verify_firebase_token(
+            id_token, _firebase_request_adapter
+        )
+    except ValueError as err:
+        print(f"Firebase token verification failed: {err}")
+        return None

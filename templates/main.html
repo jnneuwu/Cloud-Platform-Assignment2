@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mini Dropbox</title>
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet"/>
+    <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}"></script>
+</head>
+<body>
+    <main class="page-shell">
+        <header class="brand-bar">
+            <h1>Mini Dropbox</h1>
+            <p class="muted">FastAPI · MongoDB · Firebase · Azurite</p>
+        </header>
+
+        {# --- Login form (firebase-login.js hides this when a token is present) --- #}
+        <section id="login-box" class="panel" hidden="true">
+            <h2>Sign in</h2>
+            <p class="muted">Use Firebase Authentication. Your ID token is stored in a
+            cookie and verified server-side on every request.</p>
+            <div class="login-grid">
+                <label>Email: <input type="email" name="" id="email"></label>
+                <label>Password: <input type="password" name="" id="password"></label>
+                <div class="actions">
+                    <button id="login" class="primary-button">Login</button>
+                    <button id="sign-up" class="secondary-button">Sign Up</button>
+                </div>
+            </div>
+        </section>
+
+        {# Sign-out button is shown by firebase-login.js once the token cookie exists. #}
+        <button id="sign-out" class="secondary-button" hidden="true">Sign out</button>
+
+        {% if flash %}
+            <div class="flash flash-{{ flash.level }}">{{ flash.text }}</div>
+        {% endif %}
+
+        {# --- Signed-in drive view --- #}
+        {% if user_token %}
+            <section class="panel">
+                <p class="eyebrow">Signed in as</p>
+                <h2>{{ user_token.email }}</h2>
+                <p class="muted">Current path: <code>{{ directory.path }}</code></p>
+                <p class="muted">Status: {{ error_message }}</p>
+            </section>
+
+            <section class="panel">
+                <h3>Directories</h3>
+
+                {% if show_parent_link %}
+                    <p><a href="/directories/up" class="dir-link">../</a></p>
+                {% endif %}
+
+                {% if children %}
+                    <ul class="directory-list">
+                        {% for child in children %}
+                            <li>
+                                <a class="dir-link" href="/directories/{{ child._id }}/open">{{ child.name }}/</a>
+                                <form method="post" action="/directories/{{ child._id }}/delete">
+                                    <button type="submit" class="danger-button">Delete</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No sub-directories yet.</p>
+                {% endif %}
+            </section>
+
+            <section class="panel">
+                <h3>Create Directory</h3>
+                <form method="post" action="/directories" class="stacked-form">
+                    <label for="name">Directory name</label>
+                    <input id="name" name="name" type="text" required maxlength="120">
+                    <button type="submit" class="primary-button">Create</button>
+                </form>
+            </section>
+        {% endif %}
+    </main>
+</body>
+</html>

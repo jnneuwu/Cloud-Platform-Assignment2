@@ -1,5 +1,13 @@
-from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+"""Web routes for the Mini Dropbox UI.
+
+Authentication follows PaaS-by-example.pdf Example 03: ``static/firebase-login.js``
+signs the user in with Firebase, stores the resulting ID token in a cookie
+called ``token``, then ``verify_firebase_id_token`` validates that cookie on
+every request. There is no server-side session — current-directory tracking is
+also held in a small ``current_dir`` cookie.
+"""
+from fastapi import APIRouter, Form, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..auth import verify_firebase_id_token
@@ -17,171 +25,167 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 
-def _redirect(location: str) -> RedirectResponse:
-    return RedirectResponse(url=location, status_code=status.HTTP_303_SEE_OTHER)
+CURRENT_DIR_COOKIE = "current_dir"
+FLASH_COOKIE = "flash"
+
+
+def _redirect(location: str, *, clear_current_dir: bool = False) -> RedirectResponse:
+    """Redirect helper. ``clear_current_dir`` is used after deleting the active
+    directory so the next render falls back to root."""
+    response = RedirectResponse(url=location, status_code=status.HTTP_303_SEE_OTHER)
+    if clear_current_dir:
+        response.delete_cookie(CURRENT_DIR_COOKIE)
+    return response
+
+
+def _set_flash(response: RedirectResponse, level: str, text: str) -> None:
+    """Stash a one-shot toast message in a cookie that the next render clears."""
+    response.set_cookie(
+        FLASH_COOKIE,
+        f"{level}|{text}",
+        max_age=10,
+        path="/",
+        samesite="lax",
+    )
 
 
 def _current_user(request: Request):
-    return request.session.get("user")
-
-
-def _set_message(request: Request, level: str, text: str):
-    request.session["flash_message"] = {"level": level, "text": text}
-
-
-def _pop_message(request: Request):
-    return request.session.pop("flash_message", None)
+    """Verify the Firebase token cookie and return the decoded claims (or None)."""
+    return verify_firebase_id_token(request.cookies.get("token"))
 
 
 def _resolve_current_directory(request: Request, owner_uid: str):
-    selected_id = request.query_params.get("directory_id") or request.session.get("current_directory_id")
+    """Resolve which directory the user is currently viewing.
 
+    Order of precedence: ``directory_id`` query parameter, then the
+    ``current_dir`` cookie, then the user's root directory.
+    """
+    selected_id = request.query_params.get("directory_id") or request.cookies.get(
+        CURRENT_DIR_COOKIE
+    )
     if selected_id:
         directory = get_directory_by_id(owner_uid, selected_id)
         if directory:
-            request.session["current_directory_id"] = str(directory["_id"])
             return directory
-
-    root_directory = get_root_directory(owner_uid)
-    request.session["current_directory_id"] = str(root_directory["_id"])
-    return root_directory
+    return get_root_directory(owner_uid)
 
 
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    if _current_user(request):
-        return _redirect("/drive")
+    """Landing page. Shows the Firebase login box from the example, or the
+    drive view once the cookie token validates."""
+    user_token = _current_user(request)
 
-    return templates.TemplateResponse(
-        "login.html",
+    # First-login bootstrap: ensure the User document and root directory exist.
+    error_message = "No error here"
+    if user_token:
+        try:
+            ensure_user_with_root_directory(
+                firebase_uid=user_token["user_id"],
+                email=user_token.get("email"),
+                display_name=user_token.get("name"),
+            )
+        except Exception as exc:  # surface bootstrap failures to the UI
+            print(f"Bootstrap failed: {exc}")
+            error_message = "Could not initialise your account."
+
+    # Read (and queue clearing of) the one-shot flash cookie.
+    raw_flash = request.cookies.get(FLASH_COOKIE)
+    flash = None
+    if raw_flash and "|" in raw_flash:
+        level, _, text = raw_flash.partition("|")
+        flash = {"level": level, "text": text}
+
+    directory = None
+    children = []
+    show_parent_link = False
+
+    if user_token:
+        directory = _resolve_current_directory(request, user_token["user_id"])
+        children = list_child_directories(user_token["user_id"], directory["_id"])
+        show_parent_link = directory["path"] != "/"
+
+    rendered = templates.TemplateResponse(
+        "main.html",
         {
             "request": request,
-            "message": _pop_message(request),
-        },
-    )
-
-
-@router.post("/auth/login")
-async def login(request: Request):
-    payload = await request.json()
-    id_token = payload.get("idToken") or payload.get("id_token")
-
-    if not id_token:
-        raise HTTPException(status_code=400, detail="Missing Firebase ID token.")
-
-    try:
-        decoded = verify_firebase_id_token(id_token)
-        user, root_directory = ensure_user_with_root_directory(
-            firebase_uid=decoded["uid"],
-            email=decoded.get("email"),
-            display_name=decoded.get("name"),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    request.session["user"] = {
-        "uid": user["firebase_uid"],
-        "email": user.get("email", ""),
-        "display_name": user.get("display_name", ""),
-    }
-    request.session["current_directory_id"] = str(root_directory["_id"])
-    return JSONResponse({"ok": True, "redirect_url": "/drive"})
-
-
-@router.get("/logout")
-def logout(request: Request):
-    request.session.clear()
-    return _redirect("/")
-
-
-@router.get("/drive", response_class=HTMLResponse)
-def drive(request: Request):
-    user = _current_user(request)
-    if not user:
-        _set_message(request, "error", "Please log in first.")
-        return _redirect("/")
-
-    directory = _resolve_current_directory(request, user["uid"])
-    children = list_child_directories(user["uid"], directory["_id"])
-    parent_id = str(directory["parent_id"]) if directory.get("parent_id") else None
-
-    return templates.TemplateResponse(
-        "drive.html",
-        {
-            "request": request,
-            "message": _pop_message(request),
-            "user": user,
+            "user_token": user_token,
+            "error_message": error_message,
+            "flash": flash,
             "directory": directory,
             "children": children,
-            "show_parent_link": directory["path"] != "/",
-            "parent_id": parent_id,
+            "show_parent_link": show_parent_link,
         },
     )
+    if flash is not None:
+        rendered.delete_cookie(FLASH_COOKIE, path="/")
+    return rendered
 
 
 @router.get("/directories/up")
 def go_up(request: Request):
-    user = _current_user(request)
-    if not user:
+    """Navigate to the parent of the active directory (Group 2 task 6)."""
+    user_token = _current_user(request)
+    if not user_token:
         return _redirect("/")
 
-    current_directory = _resolve_current_directory(request, user["uid"])
-    parent_id = current_directory.get("parent_id")
-    if parent_id:
-        request.session["current_directory_id"] = str(parent_id)
-
-    return _redirect("/drive")
+    directory = _resolve_current_directory(request, user_token["user_id"])
+    parent_id = directory.get("parent_id")
+    response = _redirect("/")
+    if parent_id is not None:
+        response.set_cookie(CURRENT_DIR_COOKIE, str(parent_id), path="/", samesite="lax")
+    else:
+        response.delete_cookie(CURRENT_DIR_COOKIE, path="/")
+    return response
 
 
 @router.get("/directories/{directory_id}/open")
 def open_directory(directory_id: str, request: Request):
-    user = _current_user(request)
-    if not user:
+    """Change into a sub-directory (Group 2 task 5)."""
+    user_token = _current_user(request)
+    if not user_token:
         return _redirect("/")
 
-    directory = get_directory_by_id(user["uid"], directory_id)
+    directory = get_directory_by_id(user_token["user_id"], directory_id)
+    response = _redirect("/")
     if directory is None:
-        _set_message(request, "error", "Directory not found.")
-        return _redirect("/drive")
-
-    request.session["current_directory_id"] = str(directory["_id"])
-    return _redirect("/drive")
+        _set_flash(response, "error", "Directory not found.")
+    else:
+        response.set_cookie(
+            CURRENT_DIR_COOKIE, str(directory["_id"]), path="/", samesite="lax"
+        )
+    return response
 
 
 @router.post("/directories")
-async def add_directory(request: Request):
-    user = _current_user(request)
-    if not user:
+async def add_directory(request: Request, name: str = Form(...)):
+    """Create a sub-directory under the active directory (Group 1 task 3)."""
+    user_token = _current_user(request)
+    if not user_token:
         return _redirect("/")
 
-    form = await request.form()
-    name = str(form.get("name", "")).strip()
-    current_directory = _resolve_current_directory(request, user["uid"])
-
+    current_directory = _resolve_current_directory(request, user_token["user_id"])
+    response = _redirect("/")
     try:
-        create_directory(user["uid"], current_directory["_id"], name)
-        _set_message(request, "success", f'Directory "{name}" created.')
+        create_directory(user_token["user_id"], current_directory["_id"], name.strip())
+        _set_flash(response, "success", f'Directory "{name.strip()}" created.')
     except ValueError as exc:
-        _set_message(request, "error", str(exc))
-
-    return _redirect("/drive")
+        _set_flash(response, "error", str(exc))
+    return response
 
 
 @router.post("/directories/{directory_id}/delete")
 def remove_directory(directory_id: str, request: Request):
-    user = _current_user(request)
-    if not user:
+    """Delete a sub-directory (Group 1 task 4)."""
+    user_token = _current_user(request)
+    if not user_token:
         return _redirect("/")
 
+    clear_active = request.cookies.get(CURRENT_DIR_COOKIE) == directory_id
+    response = _redirect("/", clear_current_dir=clear_active)
     try:
-        delete_directory(user["uid"], directory_id)
-        _set_message(request, "success", "Directory deleted.")
+        delete_directory(user_token["user_id"], directory_id)
+        _set_flash(response, "success", "Directory deleted.")
     except ValueError as exc:
-        _set_message(request, "error", str(exc))
-
-    current_directory_id = request.session.get("current_directory_id")
-    if current_directory_id == directory_id:
-        root_directory = get_root_directory(user["uid"])
-        request.session["current_directory_id"] = str(root_directory["_id"])
-
-    return _redirect("/drive")
+        _set_flash(response, "error", str(exc))
+    return response

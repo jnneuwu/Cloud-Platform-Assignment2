@@ -1,64 +1,115 @@
-# Cloud Platform Assignment 2 Starter
+# Mini Dropbox — Cloud Services & Platforms Assignment 2
 
-This starter gives you a safe first step for the Dropbox-style assignment:
-
-- FastAPI app entry point
-- MongoDB connection and indexes
-- first-login bootstrap logic for `User` and root `Directory`
-- basic directory listing and create/delete directory UI
-- a placeholder `firebase-login.js` file that must be replaced with the exact course example
+A FastAPI implementation of a Dropbox-style cloud service. Authentication uses
+Firebase, metadata lives in MongoDB Atlas, and file blobs are stored in Azurite
+(local) or Azure Blob Storage (deployed). The login flow matches
+`PaaS-by-example.pdf` Example 03 exactly: `static/firebase-login.js` puts the
+Firebase ID token into a `token` cookie and the FastAPI server validates it
+with `google.oauth2.id_token.verify_firebase_token`.
 
 ## 1. Create and activate a virtual environment
 
+Windows (PowerShell):
+
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python -m venv env
+./env/Scripts/activate.ps1
+```
+
+Windows (cmd):
+
+```bat
+python -m venv env
+./env/Scripts/activate.bat
+```
+
+Linux / macOS:
+
+```bash
+python3 -m venv env
+source env/bin/activate
 ```
 
 ## 2. Install dependencies
 
-```powershell
+```bash
 pip install -r requirements.txt
 ```
+
+Only the libraries listed in the course example are used.
 
 ## 3. Configure environment variables
 
 Copy `.env.example` and set the values in your shell before starting the server.
+The required variables are:
 
-Example in PowerShell:
+| Variable | Purpose |
+| --- | --- |
+| `MONGODB_URI` | MongoDB Atlas connection string |
+| `MONGODB_DB_NAME` | Database name to use (default `cloud_platform_assignment`) |
+| `AZURE_STORAGE_CONNECTION_STRING` | `UseDevelopmentStorage=true` for Azurite, or the connection string from Azure Portal |
+| `AZURE_CONTAINER_NAME` | Blob container name (default `dropbox-files`) |
+
+PowerShell example:
 
 ```powershell
-$env:MONGODB_URI = "your-mongodb-atlas-connection-string"
-$env:MONGODB_DB_NAME = "cloud_platform_assignment"
-$env:SESSION_SECRET = "replace-this"
-$env:FIREBASE_PROJECT_ID = "your-firebase-project-id"
-$env:FIREBASE_CREDENTIALS_PATH = "E:\path\to\firebase-service-account.json"
+$env:MONGODB_URI = "mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/?retryWrites=true&w=majority"
 $env:AZURE_STORAGE_CONNECTION_STRING = "UseDevelopmentStorage=true"
-$env:AZURE_CONTAINER_NAME = "dropbox-files"
 ```
 
-## 4. Replace `static/js/firebase-login.js`
+## 4. Add your Firebase config
 
-The assignment brief says the login system must match the course example exactly.
-This starter includes only a placeholder file so the project structure is correct.
-Before testing login, replace `static/js/firebase-login.js` with the exact file from your course example and make sure it posts the Firebase ID token to `/auth/login`.
+Open `static/firebase-login.js` and replace the `firebaseConfig` object with
+the snippet from your Firebase project (Project settings → General → Your apps
+→ Web app → Use a `<script>` tag). **Do not modify any other part of the
+file** — the assignment brief requires `firebase-login.js` to match the
+example exactly.
 
-## 5. Run the app
+## 5. Start Azurite
 
-```powershell
+In VS Code, install the *Azurite* extension and run `Azurite: Start Blob
+Service` (Ctrl+Shift+P). It listens on `127.0.0.1:10000` by default.
+
+## 6. Run the app
+
+```bash
 uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000`.
 
-## Current scope
+## Project layout
 
-This starter covers the first build stage only:
+```
+app/
+  main.py                  # FastAPI entry point
+  auth.py                  # google-auth Firebase token verifier
+  config.py                # env-driven settings
+  db.py                    # MongoDB client + indexes
+  routes/web.py            # all HTTP routes
+  services/
+    bootstrap_service.py   # first-login user + root directory
+    directory_service.py   # create / list / delete directories
+static/
+  firebase-login.js        # course Example 03 script (only firebaseConfig changed)
+  styles.css
+templates/
+  main.html                # single-page UI (login box + drive view)
+```
 
-- app structure
-- login integration point
-- user bootstrap
-- root directory creation
-- create/delete directory basics
+## Implemented (Group 1)
 
-File upload/download, hashing, sharing, and Azurite integration should be added later.
+- Login / logout via Firebase exactly per the example
+- `users`, `directories`, `files` MongoDB collections with unique indexes
+- First-login bootstrap of the `User` document and root `/` directory
+- Create directory in the current location (rejects duplicate names)
+- Delete an empty directory (root cannot be deleted)
+
+## Coming next
+
+- Group 2: change directory, `../` navigation, file upload to Azurite with
+  overwrite confirmation
+- Group 3: file download / delete, prevent non-empty directory deletion,
+  duplicate detection in current directory (SHA-256)
+- Group 4: duplicate detection across the whole drive, read-only file sharing,
+  polished UI
