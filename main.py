@@ -24,8 +24,22 @@ from pymongo import ASCENDING, MongoClient
 # --- Configuration (read once from environment) ---
 MONGODB_URI = os.getenv("MONGODB_URI", "")
 DB_NAME = os.getenv("MONGODB_DB_NAME", "cloud_platform_assignment")
-AZURE_CONN = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "UseDevelopmentStorage=true")
 CONTAINER = os.getenv("AZURE_CONTAINER_NAME", "dropbox-files")
+
+# Full Azurite dev connection string. The newer azure-storage-blob versions
+# do not accept the "UseDevelopmentStorage=true" shortcut anymore, so we keep
+# the expanded form here. The account key below is the public one shipped
+# with Azurite, not a secret.
+AZURITE_DEV = (
+    "DefaultEndpointsProtocol=http;"
+    "AccountName=devstoreaccount1;"
+    "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6"
+    "IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;"
+    "BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+)
+AZURE_CONN = os.getenv("AZURE_STORAGE_CONNECTION_STRING") or AZURITE_DEV
+if AZURE_CONN.strip().lower() == "usedevelopmentstorage=true":
+    AZURE_CONN = AZURITE_DEV
 
 # --- Cloud clients (created once at import time) ---
 app = FastAPI(title="Mini Dropbox")
