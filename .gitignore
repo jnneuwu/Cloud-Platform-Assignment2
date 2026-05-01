@@ -9,3 +9,8 @@ __pycache__/
 .idea/
 .vscode/
 .env
+
+# Azurite local data (created by VS Code extension when blob service runs)
+__blobstorage__/
+__queuestorage__/
+__azurite_db_*.json
