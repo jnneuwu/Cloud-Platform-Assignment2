@@ -7,75 +7,130 @@
     <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}"></script>
 </head>
 <body>
-    <main class="page-shell">
-        <header class="brand-bar">
-            <h1>Mini Dropbox</h1>
-            <p class="muted">FastAPI · MongoDB · Firebase · Azurite</p>
-        </header>
-
-        {# --- Login form (firebase-login.js hides this when a token is present) --- #}
-        <section id="login-box" class="panel" hidden="true">
-            <h2>Sign in</h2>
-            <p class="muted">Use Firebase Authentication. Your ID token is stored in a
-            cookie and verified server-side on every request.</p>
-            <div class="login-grid">
-                <label>Email: <input type="email" name="" id="email"></label>
-                <label>Password: <input type="password" name="" id="password"></label>
-                <div class="actions">
-                    <button id="login" class="primary-button">Login</button>
-                    <button id="sign-up" class="secondary-button">Sign Up</button>
-                </div>
-            </div>
-        </section>
-
-        {# Sign-out button is shown by firebase-login.js once the token cookie exists. #}
-        <button id="sign-out" class="secondary-button" hidden="true">Sign out</button>
-
-        {% if flash %}
-            <div class="flash flash-{{ flash.level }}">{{ flash.text }}</div>
-        {% endif %}
-
-        {# --- Signed-in drive view --- #}
+<main class="shell">
+    <header class="bar">
+        <h1>Mini Dropbox</h1>
         {% if user_token %}
-            <section class="panel">
-                <p class="eyebrow">Signed in as</p>
-                <h2>{{ user_token.email }}</h2>
-                <p class="muted">Current path: <code>{{ directory.path }}</code></p>
-                <p class="muted">Status: {{ error_message }}</p>
-            </section>
+            <span class="user">{{ user_token.email }}</span>
+        {% endif %}
+        <button id="sign-out" class="btn ghost" hidden="true">Sign out</button>
+    </header>
 
-            <section class="panel">
-                <h3>Directories</h3>
+    {# Login form - firebase-login.js toggles its visibility based on the cookie. #}
+    <section id="login-box" class="panel" hidden="true">
+        <h2>Sign in</h2>
+        <div class="grid">
+            <label>Email <input type="email" id="email"></label>
+            <label>Password <input type="password" id="password"></label>
+            <div class="row">
+                <button id="login" class="btn primary">Login</button>
+                <button id="sign-up" class="btn">Sign Up</button>
+            </div>
+        </div>
+    </section>
 
-                {% if show_parent_link %}
-                    <p><a href="/directories/up" class="dir-link">../</a></p>
-                {% endif %}
+    {# Flash message via ?msg=... query param. #}
+    {% if msg %}
+        <div class="flash">{{ msg.replace('+', ' ') }}</div>
+    {% endif %}
 
-                {% if children %}
-                    <ul class="directory-list">
-                        {% for child in children %}
-                            <li>
-                                <a class="dir-link" href="/directories/{{ child._id }}/open">{{ child.name }}/</a>
-                                <form method="post" action="/directories/{{ child._id }}/delete">
-                                    <button type="submit" class="danger-button">Delete</button>
-                                </form>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <p class="muted">No sub-directories yet.</p>
-                {% endif %}
-            </section>
-
-            <section class="panel">
-                <h3>Create Directory</h3>
-                <form method="post" action="/directories" class="stacked-form">
-                    <label for="name">Directory name</label>
-                    <input id="name" name="name" type="text" required maxlength="120">
-                    <button type="submit" class="primary-button">Create</button>
+    {% if user_token %}
+        {# Group 2.8: confirm before overwriting an existing file. #}
+        {% if confirm_overwrite %}
+            <section class="panel warn">
+                <h3>File "{{ pending_filename }}" already exists</h3>
+                <p>Re-pick the file and tick the box to confirm overwrite.</p>
+                <form method="post" action="/upload" enctype="multipart/form-data" class="row">
+                    <input type="file" name="file" required>
+                    <input type="hidden" name="overwrite" value="yes">
+                    <button class="btn primary" type="submit">Yes, overwrite</button>
+                    <a href="/" class="btn">Cancel</a>
                 </form>
             </section>
         {% endif %}
-    </main>
+
+        <section class="panel">
+            <p class="path">Path: <code>{{ current.path }}</code> &middot;
+                <a href="/duplicates">Find duplicates across drive</a></p>
+        </section>
+
+        <section class="panel">
+            <h3>Directories</h3>
+            <ul class="list">
+                {# Group 2.6 + 2.7: ../ link only shown when not at root. #}
+                {% if show_up %}
+                    <li><a href="/up-dir" class="link">../</a></li>
+                {% endif %}
+                {% for child in children %}
+                    <li>
+                        <a href="/open-dir/{{ child._id }}" class="link">{{ child.name }}/</a>
+                        <form method="post" action="/delete-dir">
+                            <input type="hidden" name="dir_id" value="{{ child._id }}">
+                            <button class="btn danger" type="submit">Delete</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+            <form method="post" action="/create-dir" class="row tight">
+                <input type="text" name="name" placeholder="New directory name" required maxlength="120">
+                <button class="btn primary" type="submit">Create directory</button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h3>Files</h3>
+            <ul class="list">
+                {% for f in files %}
+                    {# Group 3.12: highlight duplicates in current directory. #}
+                    <li class="{% if f.is_dup %}dup{% endif %}">
+                        <span class="name">
+                            {{ f.name }}
+                            {% if f.is_dup %}<span class="tag">duplicate</span>{% endif %}
+                        </span>
+                        <span class="meta">{{ (f.size / 1024)|round(1) }} KB</span>
+                        <span class="actions">
+                            <a href="/download/{{ f._id }}" class="btn">Download</a>
+                            <form method="post" action="/delete-file" style="display:inline">
+                                <input type="hidden" name="file_id" value="{{ f._id }}">
+                                <button class="btn danger" type="submit">Delete</button>
+                            </form>
+                            <form method="post" action="/share" class="row tight" style="display:inline-flex">
+                                <input type="hidden" name="file_id" value="{{ f._id }}">
+                                <input type="email" name="email" placeholder="share with email" required>
+                                <button class="btn" type="submit">Share</button>
+                            </form>
+                        </span>
+                        {% if f.shared_with %}
+                            <span class="shared">Shared with: {{ f.shared_with|join(', ') }}</span>
+                        {% endif %}
+                    </li>
+                {% else %}
+                    <li class="muted">No files in this directory.</li>
+                {% endfor %}
+            </ul>
+
+            <form method="post" action="/upload" enctype="multipart/form-data" class="row tight">
+                <input type="file" name="file" required>
+                <button class="btn primary" type="submit">Upload</button>
+            </form>
+        </section>
+
+        {# Group 4.14: read-only view of files shared by other users. #}
+        {% if shared %}
+            <section class="panel">
+                <h3>Shared with me (read-only)</h3>
+                <ul class="list">
+                    {% for f in shared %}
+                        <li>
+                            <span class="name">{{ f.path }}</span>
+                            <span class="meta">{{ (f.size / 1024)|round(1) }} KB</span>
+                            <a href="/download/{{ f._id }}" class="btn">Download</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endif %}
+    {% endif %}
+</main>
 </body>
 </html>

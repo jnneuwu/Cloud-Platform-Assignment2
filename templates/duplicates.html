@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Duplicates - Mini Dropbox</title>
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet"/>
+    <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}"></script>
+</head>
+<body>
+<main class="shell">
+    <header class="bar">
+        <h1>Mini Dropbox - Duplicates</h1>
+        <span class="user">{{ user_token.email }}</span>
+        <button id="sign-out" class="btn ghost" hidden="true">Sign out</button>
+    </header>
+
+    {# Hidden because the user is logged in - kept so firebase-login.js doesn't crash. #}
+    <section id="login-box" class="panel" hidden="true">
+        <input type="email" id="email"><input type="password" id="password">
+        <button id="login"></button><button id="sign-up"></button>
+    </section>
+
+    <p><a href="/" class="link">&larr; back to drive</a></p>
+
+    {% if groups %}
+        {% for g in groups %}
+            <section class="panel">
+                <h3>{{ g.count }} files share SHA-256 <code>{{ g._id[:12] }}...</code></h3>
+                <ul class="list">
+                    {% for f in g.files %}
+                        <li>
+                            <span class="name">{{ f.path }}</span>
+                            <span class="meta">{{ (f.size / 1024)|round(1) }} KB</span>
+                            <a href="/download/{{ f._id }}" class="btn">Download</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endfor %}
+    {% else %}
+        <section class="panel">
+            <p class="muted">No duplicate files found across your drive.</p>
+        </section>
+    {% endif %}
+</main>
+</body>
+</html>
