@@ -73,10 +73,13 @@ In VS Code, install the *Azurite* extension and run
 ## 6. Run the app
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8001
 ```
 
-Open `http://127.0.0.1:8000`.
+Open `http://127.0.0.1:8001`.
+
+> Port 8001 (instead of FastAPI's default 8000) is used so the server does not
+> clash with other local FastAPI projects you may be running on 8000.
 
 ## File layout
 
