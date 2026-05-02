@@ -271,12 +271,16 @@ async def up_dir(request: Request):
 @app.post("/upload")
 async def upload(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     overwrite: str = Form(""),
 ):
     user = get_user(request)
     if user is None:
         return RedirectResponse("/", 303)
+
+    # browsers clear file inputs on refresh, so guard against an empty submit
+    if file is None or not file.filename:
+        return RedirectResponse("/?msg=Please+pick+a+file+first", 303)
 
     name = os.path.basename(file.filename or "").strip()
     if not name:
