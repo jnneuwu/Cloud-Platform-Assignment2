@@ -3,6 +3,12 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+# stop the requests library from sending localhost calls through a system
+# HTTP_PROXY / HTTPS_PROXY (e.g. a VPN client). without this, calls to
+# Azurite at 127.0.0.1:10000 fail with ConnectionResetError(10054).
+os.environ["NO_PROXY"] = (os.environ.get("NO_PROXY", "") + ",127.0.0.1,localhost").lstrip(",")
+os.environ["no_proxy"] = os.environ["NO_PROXY"]
+
 import google.oauth2.id_token
 from azure.storage.blob import BlobServiceClient
 from bson import ObjectId
