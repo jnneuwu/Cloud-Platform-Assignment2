@@ -16,7 +16,7 @@
         <button id="sign-out" class="btn ghost" hidden="true">Sign out</button>
     </header>
 
-    {# Login form - firebase-login.js toggles its visibility based on the cookie. #}
+    {# login box - firebase-login.js shows/hides this based on the cookie #}
     <section id="login-box" class="panel" hidden="true">
         <h2>Sign in</h2>
         <div class="grid">
@@ -29,13 +29,13 @@
         </div>
     </section>
 
-    {# Flash message via ?msg=... query param. #}
+    {# one-shot message from ?msg=... query string #}
     {% if msg %}
         <div class="flash">{{ msg.replace('+', ' ') }}</div>
     {% endif %}
 
     {% if user_token %}
-        {# Group 2.8: confirm before overwriting an existing file. #}
+        {# overwrite confirmation page #}
         {% if confirm_overwrite %}
             <section class="panel warn">
                 <h3>File "{{ pending_filename }}" already exists</h3>
@@ -57,7 +57,7 @@
         <section class="panel">
             <h3>Directories</h3>
             <ul class="list">
-                {# Group 2.6 + 2.7: ../ link only shown when not at root. #}
+                {# only show ../ when not at root #}
                 {% if show_up %}
                     <li><a href="/up-dir" class="link">../</a></li>
                 {% endif %}
@@ -81,7 +81,7 @@
             <h3>Files</h3>
             <ul class="list">
                 {% for f in files %}
-                    {# Group 3.12: highlight duplicates in current directory. #}
+                    {# highlight duplicate files in this directory #}
                     <li class="{% if f.is_dup %}dup{% endif %}">
                         <span class="name">
                             {{ f.name }}
@@ -115,7 +115,7 @@
             </form>
         </section>
 
-        {# Group 4.14: read-only view of files shared by other users. #}
+        {# files other users shared with me (read-only) #}
         {% if shared %}
             <section class="panel">
                 <h3>Shared with me (read-only)</h3>

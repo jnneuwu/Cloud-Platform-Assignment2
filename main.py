@@ -1,11 +1,3 @@
-"""Mini Dropbox - one-file FastAPI server.
-
-Follows PaaS-by-example.pdf style: single main.py, cookie-based Firebase auth,
-MongoDB for metadata, Azurite (Azure Blob Storage emulator) for file blobs.
-
-Implements every assignment task in Groups 1-4.
-"""
-
 import hashlib
 import os
 import uuid
@@ -21,15 +13,14 @@ from fastapi.templating import Jinja2Templates
 from google.auth.transport import requests as google_requests
 from pymongo import ASCENDING, MongoClient
 
-# --- Configuration (read once from environment) ---
+# config from env
 MONGODB_URI = os.getenv("MONGODB_URI", "")
 DB_NAME = os.getenv("MONGODB_DB_NAME", "cloud_platform_assignment")
 CONTAINER = os.getenv("AZURE_CONTAINER_NAME", "dropbox-files")
 
-# Full Azurite dev connection string. The newer azure-storage-blob versions
-# do not accept the "UseDevelopmentStorage=true" shortcut anymore, so we keep
-# the expanded form here. The account key below is the public one shipped
-# with Azurite, not a secret.
+# new azure-storage-blob does not accept "UseDevelopmentStorage=true",
+# so we fall back to the full Azurite dev string. the account key below is the
+# public one shipped with Azurite.
 AZURITE_DEV = (
     "DefaultEndpointsProtocol=http;"
     "AccountName=devstoreaccount1;"
@@ -41,7 +32,6 @@ AZURE_CONN = os.getenv("AZURE_STORAGE_CONNECTION_STRING") or AZURITE_DEV
 if AZURE_CONN.strip().lower() == "usedevelopmentstorage=true":
     AZURE_CONN = AZURITE_DEV
 
-# --- Cloud clients (created once at import time) ---
 app = FastAPI(title="Mini Dropbox")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -54,34 +44,23 @@ blob_service = BlobServiceClient.from_connection_string(AZURE_CONN)
 
 @app.on_event("startup")
 def on_startup():
-    """Create the blob container and the unique indexes we rely on."""
-    # Make sure the Azurite/Azure container exists.
     try:
         blob_service.create_container(CONTAINER)
     except Exception:
-        pass  # Already exists - safe to ignore.
+        pass
 
     if db is None:
         return
 
-    # One user document per Firebase uid.
     db.users.create_index([("uid", ASCENDING)], unique=True)
-    # Two directories with the same path under the same user is a major bug -
-    # this unique index makes it impossible at the database level.
+    # unique on (uid, path) blocks two dirs with the same name in the same place
     db.directories.create_index([("uid", ASCENDING), ("path", ASCENDING)], unique=True)
-    # Same idea for files: same name twice in the same directory is forbidden.
     db.files.create_index(
         [("uid", ASCENDING), ("dir_id", ASCENDING), ("name", ASCENDING)], unique=True
     )
 
 
-# --- Helpers ----------------------------------------------------------------
-
 def get_user(request: Request):
-    """Return the decoded Firebase token from the cookie, or None if invalid.
-
-    Matches PaaS-by-example.pdf Example 03: token cookie -> verify_firebase_token.
-    """
     token = request.cookies.get("token")
     if not token:
         return None
@@ -95,7 +74,7 @@ def get_user(request: Request):
 
 
 def bootstrap(uid: str, email: str | None):
-    """First-login setup: create the User document and the root '/' directory."""
+    # called on every page load - creates the user doc and root dir if missing
     if db.users.find_one({"uid": uid}) is None:
         db.users.insert_one(
             {"uid": uid, "email": email or "", "created": datetime.now(timezone.utc)}
@@ -113,11 +92,7 @@ def bootstrap(uid: str, email: str | None):
 
 
 def current_dir(request: Request, uid: str):
-    """Return the directory the user is currently inside.
-
-    Tracked in the 'cur' cookie (set by /open-dir and /up-dir). Falls back to
-    the user's root directory.
-    """
+    # which directory is the user in - tracked by 'cur' cookie, default to root
     cur_id = request.cookies.get("cur")
     if cur_id:
         try:
@@ -130,25 +105,19 @@ def current_dir(request: Request, uid: str):
 
 
 def child_path(parent_path: str, name: str) -> str:
-    """Build a path string for a child directory."""
     return f"/{name}" if parent_path == "/" else f"{parent_path}/{name}"
 
 
 def full_file_path(uid: str, file_doc: dict) -> str:
-    """Build the visible path of a file, e.g. /docs/notes.txt."""
     parent = db.directories.find_one({"_id": file_doc["dir_id"]})
     base = parent["path"] if parent else "/"
     return f"{base}/{file_doc['name']}".replace("//", "/")
 
 
-# --- Routes -----------------------------------------------------------------
-
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    """Main page. Shows login box when logged out, drive view when logged in."""
     user = get_user(request)
     if user is None:
-        # Not logged in - just render the login box (firebase-login.js handles it).
         return templates.TemplateResponse(
             "main.html", {"request": request, "user_token": None}
         )
@@ -167,14 +136,14 @@ def home(request: Request):
         )
     )
 
-    # Group 3.12: highlight files that share a SHA-256 inside this directory.
+    # mark dups in this directory by sha256
     counts: dict[str, int] = {}
     for f in files:
         counts[f["sha256"]] = counts.get(f["sha256"], 0) + 1
     for f in files:
         f["is_dup"] = counts[f["sha256"]] > 1
 
-    # Group 4.14: files other people have shared with me (read-only).
+    # files other people shared with me
     shared = list(
         db.files.find({"shared_with": user.get("email", "").lower()}).sort(
             "name", ASCENDING
@@ -192,17 +161,14 @@ def home(request: Request):
             "children": children,
             "files": files,
             "shared": shared,
-            # Group 2.7: hide ../ when sitting at root.
             "show_up": cur["path"] != "/",
             "msg": request.query_params.get("msg", ""),
-            # Group 2.8: signal the template to ask before overwriting.
             "confirm_overwrite": request.query_params.get("confirm") == "overwrite",
             "pending_filename": request.query_params.get("file", ""),
         },
     )
 
 
-# Group 1.3: create directory.
 @app.post("/create-dir")
 async def create_dir(request: Request, name: str = Form(...)):
     user = get_user(request)
@@ -215,7 +181,6 @@ async def create_dir(request: Request, name: str = Form(...)):
 
     cur = current_dir(request, user["user_id"])
     new_path = child_path(cur["path"], name)
-    # Major-bug guard: never allow two directories with the same path.
     if db.directories.find_one({"uid": user["user_id"], "path": new_path}):
         return RedirectResponse("/?msg=Directory+already+exists", 303)
 
@@ -231,7 +196,6 @@ async def create_dir(request: Request, name: str = Form(...)):
     return RedirectResponse("/", 303)
 
 
-# Group 1.4 + Group 3.11: delete directory, refusing if not empty.
 @app.post("/delete-dir")
 async def delete_dir(request: Request, dir_id: str = Form(...)):
     user = get_user(request)
@@ -243,13 +207,14 @@ async def delete_dir(request: Request, dir_id: str = Form(...)):
     except Exception:
         return RedirectResponse("/?msg=Invalid+id", 303)
 
-    # Look up by id AND uid - never trust the id alone (avoids deleting wrong dir).
+    # always look up by id AND uid so we cannot hit someone else's dir
     d = db.directories.find_one({"_id": oid, "uid": user["user_id"]})
     if d is None:
         return RedirectResponse("/?msg=Directory+not+found", 303)
     if d["path"] == "/":
         return RedirectResponse("/?msg=Cannot+delete+root", 303)
 
+    # refuse to delete a non-empty directory
     if db.directories.count_documents({"uid": user["user_id"], "parent": oid}) > 0:
         return RedirectResponse("/?msg=Directory+has+sub-directories", 303)
     if db.files.count_documents({"uid": user["user_id"], "dir_id": oid}) > 0:
@@ -257,13 +222,11 @@ async def delete_dir(request: Request, dir_id: str = Form(...)):
 
     db.directories.delete_one({"_id": oid})
     response = RedirectResponse("/", 303)
-    # If the user was inside the directory we just deleted, reset to root.
     if request.cookies.get("cur") == dir_id:
         response.delete_cookie("cur", path="/")
     return response
 
 
-# Group 2.5: change into a directory.
 @app.get("/open-dir/{dir_id}")
 async def open_dir(dir_id: str, request: Request):
     user = get_user(request)
@@ -284,7 +247,6 @@ async def open_dir(dir_id: str, request: Request):
     return response
 
 
-# Group 2.6: go up one level (the ../ entry).
 @app.get("/up-dir")
 async def up_dir(request: Request):
     user = get_user(request)
@@ -300,7 +262,6 @@ async def up_dir(request: Request):
     return response
 
 
-# Group 2.8: upload a file to Azurite. Asks before overwriting.
 @app.post("/upload")
 async def upload(
     request: Request,
@@ -311,7 +272,6 @@ async def upload(
     if user is None:
         return RedirectResponse("/", 303)
 
-    # Strip any path components from the uploaded filename.
     name = os.path.basename(file.filename or "").strip()
     if not name:
         return RedirectResponse("/?msg=Empty+filename", 303)
@@ -320,7 +280,8 @@ async def upload(
     existing = db.files.find_one(
         {"uid": user["user_id"], "dir_id": cur["_id"], "name": name}
     )
-    # Major-bug guard: never overwrite without an explicit second confirmation.
+    # ask before overwrite - first POST sends user to a confirm page,
+    # only after they resubmit with overwrite=yes do we actually replace
     if existing is not None and overwrite != "yes":
         return RedirectResponse(f"/?confirm=overwrite&file={name}", 303)
 
@@ -329,7 +290,6 @@ async def upload(
     container = blob_service.get_container_client(CONTAINER)
 
     if existing is not None:
-        # Overwrite the existing blob, keep the same metadata id.
         container.upload_blob(existing["blob_name"], content, overwrite=True)
         db.files.update_one(
             {"_id": existing["_id"]},
@@ -342,7 +302,7 @@ async def upload(
             },
         )
     else:
-        # Blob name is namespaced by uid + uuid so we never collide between users.
+        # blob name is uid + uuid + filename so two users cannot collide
         blob_name = f"{user['user_id']}/{uuid.uuid4().hex}_{name}"
         container.upload_blob(blob_name, content)
         db.files.insert_one(
@@ -361,7 +321,6 @@ async def upload(
     return RedirectResponse("/", 303)
 
 
-# Group 3.9: delete a file.
 @app.post("/delete-file")
 async def delete_file(request: Request, file_id: str = Form(...)):
     user = get_user(request)
@@ -373,7 +332,6 @@ async def delete_file(request: Request, file_id: str = Form(...)):
     except Exception:
         return RedirectResponse("/?msg=Invalid+id", 303)
 
-    # Look up by id AND uid (avoids deleting someone else's file).
     f = db.files.find_one({"_id": oid, "uid": user["user_id"]})
     if f is None:
         return RedirectResponse("/?msg=File+not+found", 303)
@@ -386,7 +344,6 @@ async def delete_file(request: Request, file_id: str = Form(...)):
     return RedirectResponse("/", 303)
 
 
-# Group 3.10 + Group 4.14: download a file (owner OR shared user).
 @app.get("/download/{file_id}")
 async def download(file_id: str, request: Request):
     user = get_user(request)
@@ -398,6 +355,7 @@ async def download(file_id: str, request: Request):
     except Exception:
         return RedirectResponse("/?msg=Invalid+id", 303)
 
+    # owner OR someone the file was shared with can download
     email = (user.get("email") or "").lower()
     f = db.files.find_one(
         {
@@ -420,14 +378,13 @@ async def download(file_id: str, request: Request):
     )
 
 
-# Group 4.13: detect duplicates across the entire user's drive.
 @app.get("/duplicates", response_class=HTMLResponse)
 async def duplicates(request: Request):
     user = get_user(request)
     if user is None:
         return RedirectResponse("/", 303)
 
-    # Group files by SHA-256, only keep groups with more than one file.
+    # group all my files by sha256, keep groups with more than one file
     pipeline = [
         {"$match": {"uid": user["user_id"]}},
         {
@@ -447,7 +404,6 @@ async def duplicates(request: Request):
         {"$match": {"count": {"$gt": 1}}},
     ]
     groups = list(db.files.aggregate(pipeline))
-    # Annotate each file with its full path (e.g. /docs/notes.txt).
     for g in groups:
         for f in g["files"]:
             d = db.directories.find_one({"_id": f["dir_id"]})
@@ -460,7 +416,6 @@ async def duplicates(request: Request):
     )
 
 
-# Group 4.14: share a file read-only with another user (by email).
 @app.post("/share")
 async def share(
     request: Request,
@@ -484,7 +439,7 @@ async def share(
     if not target:
         return RedirectResponse("/?msg=Email+required", 303)
 
-    # $addToSet keeps the list unique - sharing twice is a no-op.
+    # $addToSet: sharing twice with the same email is a no-op
     db.files.update_one({"_id": oid}, {"$addToSet": {"shared_with": target}})
     return RedirectResponse(f"/?msg=Shared+with+{target}", 303)
 
