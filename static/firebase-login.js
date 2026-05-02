@@ -10,12 +10,12 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 // Do not modify any other part of this file. The assignment brief requires
 // firebase-login.js to match the example exactly except for this object.
 const firebaseConfig = {
-    apiKey: "REPLACE_WITH_API_KEY",
-    authDomain: "REPLACE_WITH_AUTH_DOMAIN",
-    projectId: "REPLACE_WITH_PROJECT_ID",
-    storageBucket: "REPLACE_WITH_STORAGE_BUCKET",
-    messagingSenderId: "REPLACE_WITH_SENDER_ID",
-    appId: "REPLACE_WITH_APP_ID"
+    apiKey: "AIzaSyDNYbRO8DWwpIi-eCeBZSjs-SWGUFlKIYw",
+    authDomain: "cp-assignment2.firebaseapp.com",
+    projectId: "cp-assignment2",
+    storageBucket: "cp-assignment2.firebasestorage.app",
+    messagingSenderId: "355373000310",
+    appId: "1:355373000310:web:67fd94523965d0d9eee157"
 }
 
 window.addEventListener("load", function () {
